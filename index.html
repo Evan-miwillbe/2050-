@@ -104,6 +104,48 @@ body {
 .day-tab:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.06); }
 .day-tab.active { background: var(--purple); color: #fff; }
 
+/* Search bar */
+.search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+.search-input {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 4px 10px 4px 30px;
+  color: #fff;
+  font-size: 13px;
+  font-family: var(--font);
+  width: 180px;
+  outline: none;
+  transition: all 0.2s;
+}
+.search-input::placeholder { color: rgba(255,255,255,0.35); }
+.search-input:focus { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.3); width: 220px; }
+.search-icon {
+  position: absolute;
+  left: 8px;
+  font-size: 14px;
+  opacity: 0.4;
+  pointer-events: none;
+}
+.search-wrap { position: relative; }
+.search-clear {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  display: none;
+  font-family: var(--font);
+}
+.search-clear:hover { color: #fff; }
+
 /* Track filter pills */
 .track-filter {
   display: flex;
@@ -316,6 +358,23 @@ input[type=range]::-webkit-slider-thumb {
 .empty-title { font-size: 18px; font-weight: 600; color: var(--ink2); margin-bottom: 8px; }
 .empty-sub { font-size: 14px; color: var(--ink3); }
 
+/* Search result meta */
+.c-day {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--purple);
+  background: var(--purple-dim);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+mark.search-hl {
+  background: #FEF08A;
+  color: var(--ink);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* ── COLORS PER TRACK ── */
 .t-新生论坛::before { background: #5B52C8; }
 .t-新生论坛 .track-tag { background: rgba(91,82,200,0.1); color: #5B52C8; }
@@ -353,11 +412,15 @@ input[type=range]::-webkit-slider-thumb {
 @media (max-width: 640px) {
   .header-inner { flex-wrap: wrap; height: auto; padding: 12px 16px; gap: 10px; }
   .brand { border-right: none; padding-right: 0; }
+  .search-wrap { border-right: none; padding: 0; width: 100%; }
+  .search-input { width: 100%; }
+  .search-input:focus { width: 100%; }
   .day-tabs { border-right: none; padding: 0; }
   .track-filter { padding: 0; }
   .time-panel { padding: 12px 16px; }
   .main { padding: 14px 16px 40px; }
   .grid { grid-template-columns: 1fr; }
+  .card-top { flex-wrap: wrap; gap: 4px; }
 }
 </style>
 </head>
@@ -371,6 +434,11 @@ input[type=range]::-webkit-slider-thumb {
         <span class="brand-name">2050大会</span>
         <span class="brand-sub">活动日程查询</span>
       </div>
+    </div>
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" class="search-input" id="searchInput" placeholder="搜索演讲、嘉宾、主题…" oninput="onSearch()">
+      <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
     </div>
     <div class="day-tabs">
       <button class="day-tab active" onclick="setDay(24)">4月24日</button>
@@ -733,6 +801,39 @@ const DAY_RANGES = {
 
 let currentDay = 24;
 let activeTrack = null;
+let searchQuery = '';
+
+function onSearch(){
+  const v = document.getElementById('searchInput').value.trim();
+  searchQuery = v;
+  document.getElementById('searchClear').style.display = v ? 'inline-block' : 'none';
+  // When searching, switch to "all days" mode
+  render(undefined, v);
+}
+
+function clearSearch(){
+  document.getElementById('searchInput').value = '';
+  searchQuery = '';
+  document.getElementById('searchClear').style.display = 'none';
+  render();
+}
+
+function highlight(text, q){
+  if(!q) return text;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="search-hl">$1</mark>');
+}
+
+function matchQuery(s, q){
+  if(!q) return true;
+  const ql = q.toLowerCase();
+  return (s.n && s.n.toLowerCase().includes(ql))
+      || (s.p && s.p.toLowerCase().includes(ql))
+      || (s.v && s.v.toLowerCase().includes(ql))
+      || (s.t && s.t.toLowerCase().includes(ql));
+}
+
+const dayLabel = {24:'4月24日', 25:'4月25日', 26:'4月26日'};
 
 function T(s){ const[h,m]=s.split(':').map(Number); return h*60+(m||0); }
 function fmt(v){ const m=7*60+v*15; return `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`; }
@@ -758,6 +859,8 @@ function toggleTrack(tr){
 }
 
 function setDay(d){
+  // Clear search when switching days
+  if(searchQuery) clearSearch();
   currentDay = d;
   document.querySelectorAll('.day-tab').forEach((b,i)=>b.classList.toggle('active',[24,25,26][i]===d));
   const r = DAY_RANGES[d];
@@ -778,8 +881,54 @@ function onSlide(){
   render(v);
 }
 
-function render(v){
+function render(v, q){
   if(v===undefined) v = +document.getElementById('slider').value;
+  const grid = document.getElementById('grid');
+
+  // Search mode: search across ALL days
+  if(q && q.trim()){
+    const ql = q.trim().toLowerCase();
+    let results = ALL_SESSIONS.filter(s => matchQuery(s, ql));
+    if(activeTrack) results = results.filter(s => s.t === activeTrack);
+
+    document.getElementById('sCount').textContent = results.length;
+    document.getElementById('sTracks').textContent = new Set(results.map(s=>s.t)).size;
+    document.getElementById('sSpeakers').textContent = '—';
+    document.getElementById('resultTitle').innerHTML = `搜索 "<strong>${highlight(q, q)}</strong>" · 共 <strong>${results.length}</strong> 条结果`;
+
+    // Sort by day then start time
+    results.sort((a,b) => a.d !== b.d ? a.d - b.d : a.s.localeCompare(b.s));
+
+    if(!results.length){
+      grid.innerHTML = `<div class="empty"><div class="empty-icon">◎</div><div class="empty-title">未找到匹配的活动</div><div class="empty-sub">尝试更换关键词搜索</div></div>`;
+      return;
+    }
+
+    grid.innerHTML = results.map((s,idx) => {
+      const speakers = s.p.split('\n').filter(x=>x&&x!=='—');
+      const hasMany = speakers.length > 4;
+      const spId = `sp-${idx}`;
+      const spHTML = speakers.length ? `
+        <div class="c-speakers">
+          <div class="c-sp-label">召集人 / 主讲</div>
+          <div class="c-sp-text" id="${spId}">${highlight(speakers.join('\n'), q).replace(/\n/g,'<br>')}</div>
+          ${hasMany ? `<button class="expand-btn" onclick="toggleExpand('${spId}',this)">展开全部 ${speakers.length} 人 ▾</button>` : ''}
+        </div>` : '';
+      return `<div class="card t-${s.t}" style="animation-delay:${idx*0.025}s">
+        <div class="card-top">
+          <span class="track-tag">${highlight(s.t, q)}</span>
+          <span class="c-day">${dayLabel[s.d]}</span>
+          <span class="c-time">${s.s} – ${s.e}</span>
+        </div>
+        <div class="c-title">${highlight(s.n, q)}</div>
+        <div class="c-venue"><span class="pin">◎</span><span>${highlight(s.v, q)}</span></div>
+        ${spHTML}
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  // Normal mode: time slider
   const m = mins(v);
   let active = ALL_SESSIONS.filter(s => {
     if(s.d !== currentDay) return false;
@@ -803,7 +952,6 @@ function render(v){
   const order = ['新生论坛','热带雨林','青年团聚','探索空间','思想约会','青春舞台','热力运动','星空露营','百城味道','团聚之夜'];
   active.sort((a,b)=>order.indexOf(a.t)-order.indexOf(b.t));
 
-  const grid = document.getElementById('grid');
   if(!active.length){
     grid.innerHTML = `<div class="empty"><div class="empty-icon">◎</div><div class="empty-title">该时段暂无活动</div><div class="empty-sub">请拖动时间轴查看其他时段</div></div>`;
     return;
